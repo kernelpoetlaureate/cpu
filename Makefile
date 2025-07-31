@@ -1,36 +1,42 @@
-kernel/boot.o: kernel/boot.s
-kernel/main.o: kernel/main.c
-kernel.bin: kernel/boot.o kernel/main.o kernel/linker.ld
-# Makefile for minimal x86 kernel (bootable with QEMU)
+# Makefile - Minimal x86-64 Bare-Metal Kernel Build
 
-ASM=nasm
-CC=gcc
-LD=ld
-CFLAGS=-m32 -ffreestanding -fno-pic -fno-stack-protector -nostdlib -nostartfiles -nodefaultlibs
-LDFLAGS=-T kernel/linker.ld -nostdlib -m elf_i386 --oformat binary
+# Tools
+AS = nasm
+CC = x86_64-elf-gcc
+LD = x86_64-elf-ld
+OBJCOPY = x86_64-elf-objcopy
+QEMU = qemu-system-x86_64
 
-all: os-image.bin
+# Flags
+ASFLAGS = -f elf64
+CFLAGS = -ffreestanding -mno-red-zone -m64 -nostdlib -nostdinc -fno-builtin -fno-stack-protector -Wall -Wextra
+LDFLAGS = -T kernel/linker.ld -nostdlib
 
-kernel/boot.bin: kernel/boot.s
-	$(ASM) -f bin $< -o $@
+# Files
+KERNEL_DIR = kernel
+BOOT = $(KERNEL_DIR)/boot.s
+KERNEL_C = $(KERNEL_DIR)/kernel.c $(KERNEL_DIR)/cpu.c
+KERNEL_OBJ = boot.o kernel.o cpu.o
+KERNEL_BIN = kernel.bin
 
-kernel/main.o: kernel/main.c
-	$(CC) $(CFLAGS) -c $< -o $@
+all: $(KERNEL_BIN)
 
-kernel/start.o: kernel/start.s
-	$(ASM) -f elf32 $< -o $@
+boot.o: $(BOOT)
+	$(AS) $(ASFLAGS) -o $@ $<
 
-kernel/cpu.o: kernel/cpu.c
-	$(CC) $(CFLAGS) -c $< -o $@
+kernel.o: $(KERNEL_DIR)/kernel.c $(KERNEL_DIR)/kernel.h
+	$(CC) $(CFLAGS) -c -o $@ $(KERNEL_DIR)/kernel.c
 
-kernel/kernel.elf: kernel/start.o kernel/main.o kernel/cpu.o kernel/linker.ld
-	$(LD) $(LDFLAGS) kernel/start.o kernel/main.o kernel/cpu.o -o $@
+cpu.o: $(KERNEL_DIR)/cpu.c $(KERNEL_DIR)/cpu.h
+	$(CC) $(CFLAGS) -c -o $@ $(KERNEL_DIR)/cpu.c
 
-os-image.bin: kernel/boot.bin kernel/kernel.elf
-	cat kernel/boot.bin kernel/kernel.elf > $@
+$(KERNEL_BIN): boot.o kernel.o cpu.o $(KERNEL_DIR)/linker.ld
+	$(LD) $(LDFLAGS) -o $@ boot.o kernel.o cpu.o
 
-run: os-image.bin
-	qemu-system-i386 -drive format=raw,file=os-image.bin
+run: $(KERNEL_BIN)
+	$(QEMU) -kernel $(KERNEL_BIN)
 
 clean:
-	rm -f kernel/*.o kernel/*.bin kernel/*.elf os-image.bin
+	rm -f *.o $(KERNEL_BIN)
+
+.PHONY: all run clean
